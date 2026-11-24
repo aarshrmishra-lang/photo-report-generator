@@ -122,7 +122,7 @@ textarea{width:100%;flex:1;min-height:96px;resize:vertical;border:1px solid var(
 .wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .hint{font-size:14px;color:var(--mute);margin:6px 0 0}
 .qrbox{display:grid;place-items:center;gap:10px;text-align:center}
-.qrbox canvas{width:min(340px,80vw);height:auto;image-rendering:pixelated;border-radius:6px;background:#fff}
+.qrbox canvas{width:min(420px,86vw);height:auto;image-rendering:pixelated;border-radius:6px;background:#fff}
 .opt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;align-items:center;border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--paper);text-align:left;width:100%;margin-bottom:8px}
 .opt:hover{border-color:var(--navy2)}
 .opt svg{grid-row:span 2}
@@ -184,6 +184,7 @@ textarea{width:100%;flex:1;min-height:96px;resize:vertical;border:1px solid var(
       <select id="fit" style="border:0;background:transparent;padding:0;min-height:0"><option value="contain">Whole photo</option><option value="cover">Fill frame (crop)</option></select></label>
     <label class="btn" id="divL"><input type="checkbox" id="div" style="display:inline;width:20px;height:20px">Divider page</label>
     <span class="count" id="count"></span>
+    <button class="btn" id="qrBtn">QR code</button>
     <button class="btn navy" id="shareBtn">Send…</button>
     <button class="btn pri" id="gen">Download Word</button>
   </div>
@@ -1535,13 +1536,14 @@ function renderHome(){
   $('#list').innerHTML=list.length?list.map(r=>{const n=r.rows.filter(x=>x.ph).length;return `<div class="card" data-r="${esc(r.id)}">
     <div><h3 data-act="open"><b>${esc(numOf(r))}</b>${esc(titleOf(r))}</h3>
     <div class="sub"><span class="badge${isIssued(r)?' iss':''}">${isIssued(r)?'Issued '+esc(fmtD(r.issued)):'Draft'}</span>${esc(vinfo(r).label)} · ${esc(r.date?fmtD(r.date+'T00:00'):fmtD(r.created))}${r.note?' · '+esc(r.note):''} · ${n} photo${n===1?'':'s'}${isIssued(r)&&r.edited?' · edited after issue':''}</div></div>
-    <div class="acts"><button class="btn" data-act="open">Open</button><button class="btn" data-act="copy" title="New draft with the same comments, no photos">Reuse</button><button class="btn" data-act="del">Delete</button></div></div>`}).join(''):`<div class="empty-state">${reps.length?'No reports match.':'No reports yet. Tap <b>New report</b> to start one.'}</div>`;
+    <div class="acts"><button class="btn" data-act="open">Open</button><button class="btn" data-act="qr" title="Send this report's comments to another device by QR code">QR</button><button class="btn" data-act="copy" title="New draft with the same comments, no photos">Reuse</button><button class="btn" data-act="del">Delete</button></div></div>`}).join(''):`<div class="empty-state">${reps.length?'No reports match.':'No reports yet. Tap <b>New report</b> to start one.'}</div>`;
   storeLine();
 }
 $('#fV').onchange=$('#fS').onchange=renderHome;$('#fQ').oninput=renderHome;
 const delArm={};
 $('#list').onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;const r=reps.find(x=>x.id===b.closest('[data-r]').dataset.r);if(!r)return;const a=b.dataset.act;
   if(a==='open')openReport(r);
+  else if(a==='qr')showQR(r);
   else if(a==='copy'){const n=newReport(r.vk,r.sec,r.tank);n.rows=r.rows.map(x=>({id:uid(),text:x.text,ph:null}));n.note=r.note;await saveReport(n);openReport(n);toast('New draft with the same comments')}
   else if(a==='del'){if(Date.now()-(delArm[r.id]||0)>4000){delArm[r.id]=Date.now();b.textContent='Tap again';setTimeout(()=>{if(b.isConnected)b.textContent='Delete'},4000);return}
     await DB.delPhotos(r.id);await DB.del('reports',r.id);reps=reps.filter(x=>x!==r);renderHome();toast('Report deleted')}};
@@ -1699,7 +1701,7 @@ $('#backupBtn').onclick=async()=>{if(!reps.length){toast('No reports to back up'
   const res=await deliver(`photo-reports-backup-${today()}.json`,JSON.stringify({prg:1,kind:'backup',made:Date.now(),library:snapshot(),items}),'application/json',true).catch(()=>'err');toast(res==='cancel'?'Cancelled':res==='err'?'Could not save the backup':'Backup ready')};
 
 /* ---------- QR codes ---------- */
-const QRMAX=700,QRRE=/q\.([A-Za-z0-9]+)\.(\d+)\.(\d+)\.([A-Za-z0-9_-]+)/,QRREg=new RegExp(QRRE.source,'g');
+const QRMAX=420,QRRE=/q\.([A-Za-z0-9]+)\.(\d+)\.(\d+)\.([A-Za-z0-9_-]+)/,QRREg=new RegExp(QRRE.source,'g');
 const b64u=u8=>b64(u8).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u=s=>unb64(s.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((s.length+3)%4));
 const here=()=>location.protocol==='https:'&&!/claude\.ai|claudeusercontent|anthropic/i.test(location.host)?location.origin+location.pathname:'';
@@ -1718,17 +1720,22 @@ async function takeCode(text){const m=QRRE.exec(text||'');if(!m)return{ok:false}
   if(have<need){partsSet(P);return{ok:true,done:false,have,need}}
   const data=Array.from({length:need},(_,k)=>P[id].got[k+1]).join('');delete P[id];partsSet(P);
   try{return{ok:true,done:true,r:await qrUnpack(data)}}catch(e){return{ok:false,bad:true}}}
-function drawQR(cv,text){const m=QRLib(text,'L'),n=m.length,q=4,s=Math.max(3,Math.floor(680/(n+2*q)));cv.width=cv.height=(n+2*q)*s;const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);g.fillStyle='#000';
+function drawQR(cv,text){const m=QRLib(text,'M'),n=m.length,q=4,s=Math.max(3,Math.floor(680/(n+2*q)));cv.width=cv.height=(n+2*q)*s;const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);g.fillStyle='#000';
   for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(m[y][x])g.fillRect((x+q)*s,(y+q)*s,s,s)}
-async function showQR(r){const data=await qrPack(r),id=uid().slice(-5),n=Math.ceil(data.length/QRMAX),base=appUrl();
-  const codes=Array.from({length:n},(_,i)=>`q.${id}.${i+1}.${n}.${data.slice(i*QRMAX,(i+1)*QRMAX)}`),txt=c=>base?base+'#'+c:'PRG:'+c;let i=0;
-  modal('QR code · comments only',`<div class="qrbox"><canvas id="qrc" aria-label="QR code"></canvas><b id="qri"></b>
-    <div class="wrap" ${n>1?'':'hidden'}><button class="btn" id="qp">← Previous</button><button class="btn" id="qn">Next →</button></div>
-    <p class="hint">On the other device open Photo Reports and tap <b>Scan QR</b>${base?', or point its camera at the code':''}. ${n>1?'Scan every code, in any order. ':''}The report arrives as a new draft with the same vessel, section and comments. Photos are not included; to send photos use <b>Send full report</b>.</p>
-    <div class="wrap"><button class="btn" id="qcopy">Copy as text</button></div></div>`);
-  const draw=()=>{drawQR($('#qrc'),txt(codes[i]));$('#qri').textContent=n>1?`Code ${i+1} of ${n}`:titleOf(r)};draw();
-  if(n>1){$('#qp').onclick=()=>{i=(i+n-1)%n;draw()};$('#qn').onclick=()=>{i=(i+1)%n;draw()}}
-  $('#qcopy').onclick=async()=>{try{await navigator.clipboard.writeText(codes.map(txt).join('\n'));toast('Copied. Paste it on the other device with “Paste code”.')}catch(e){toast('Copy not allowed here')}}}
+let qrTimer=0;
+async function showQR(r){clearInterval(qrTimer);
+  try{
+  const data=await qrPack(r),id=uid().slice(-5),n=Math.ceil(data.length/QRMAX),base=appUrl();
+  const codes=Array.from({length:n},(_,i)=>`q.${id}.${i+1}.${n}.${data.slice(i*QRMAX,(i+1)*QRMAX)}`),txt=c=>base?base+'#'+c:'PRG:'+c;let i=0,play=n>1;
+  modal('QR code · '+vinfo(r).label,`<div class="qrbox"><canvas id="qrc" aria-label="QR code"></canvas><b id="qri"></b>
+    <div class="wrap" ${n>1?'':'hidden'}><button class="btn" id="qp">←</button><button class="btn" id="qplay">Pause</button><button class="btn" id="qn">→</button></div>
+    <p class="hint" style="text-align:left">${esc(numOf(r)+' '+titleOf(r))} · ${r.rows.length} comments.<br>On the other device open Photo Reports and tap <b>Scan QR</b>${base?' (or point its camera at the code)':''}. ${n>1?`The ${n} codes change by themselves: hold the camera on the screen until it says the report is received. `:''}It arrives there as a new draft. Photos are not included; to send photos use <b>Send… › Send full report</b>.</p>
+    <div class="wrap"><button class="btn" id="qcopy">Copy as text instead</button></div></div>`);
+  const draw=()=>{if(!$('#qrc'))return clearInterval(qrTimer);drawQR($('#qrc'),txt(codes[i]));$('#qri').textContent=n>1?`Code ${i+1} of ${n}`:'Ready to scan'};draw();
+  const tick=()=>{clearInterval(qrTimer);if(play)qrTimer=setInterval(()=>{i=(i+1)%n;draw()},1400)};tick();
+  if(n>1){$('#qp').onclick=()=>{i=(i+n-1)%n;draw();tick()};$('#qn').onclick=()=>{i=(i+1)%n;draw();tick()};$('#qplay').onclick=e=>{play=!play;e.target.textContent=play?'Pause':'Play';tick()}}
+  $('#qcopy').onclick=async()=>{try{await navigator.clipboard.writeText(codes.map(txt).join('\n'));toast('Copied. On the other device tap “Paste code”.')}catch(e){modal('Copy this text',`<textarea readonly style="min-height:200px">${esc(codes.map(txt).join('\n'))}</textarea><p class="hint">Select all, copy, and on the other device tap <b>Paste code</b>.</p>`)}}
+  }catch(e){modal('QR code',`<p>The QR code could not be made on this device.</p><p class="hint">Error: ${esc(e&&e.message||e)}. Please send this message to support. Meanwhile use <b>Send… › Send full report</b> to share the report as a file.</p>`)}}
 async function handleText(text,fromScan){let last=null,msg='';const list=(text||'').match(QRREg)||[];
   for(const c of list){const res=await takeCode(c);if(res.done&&res.r){last=res.r;msg='Report received as a new draft'}else if(res.ok&&!res.done)msg=`Received code ${res.have} of ${res.need}. Scan the next one.`;else if(res.bad)msg='That code could not be read. Try again.'}
   if(!list.length)msg='No report code found in that text.';return{last,msg}}
@@ -1754,6 +1761,7 @@ $('#pasteBtn').onclick=()=>{modal('Paste code',`<label class="fld">Paste the cop
 
 /* send menu */
 const IC=p=>`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${p}</svg>`;
+$('#qrBtn').onclick=()=>R&&showQR(R);
 $('#shareBtn').onclick=()=>{modal('Send this report',`
   <button class="opt" data-s="word">${IC('<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13l1.5 5L12 14l1.5 4L15 13"/>')}<b>Word report</b><span>For the office: email, WhatsApp, Teams, Drive… Marks the report as issued.</span></button>
   <button class="opt" data-s="pkg">${IC('<path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/>')}<b>Send full report to another device</b><span>One file with all photos and comments. Pick Bluetooth, Nearby Share or AirDrop in the share menu; on the other device tap Import file.</span></button>
@@ -1766,7 +1774,7 @@ $('#mb').addEventListener('click',async e=>{const b=e.target.closest('[data-s]')
 
 /* ---------- modal + drawer ---------- */
 function modal(t,html){$('#mt').textContent=t;$('#mb').innerHTML=html;$('#mov').classList.add('on')}
-function closeModal(){if(scanStop){scanStop();scanStop=null}$('#mov').classList.remove('on');$('#mb').innerHTML=''}
+function closeModal(){clearInterval(qrTimer);if(scanStop){scanStop();scanStop=null}$('#mov').classList.remove('on');$('#mb').innerHTML=''}
 $('#mclose').onclick=closeModal;$('#mov').onclick=e=>{if(e.target.id==='mov')closeModal()};
 let lc={v:'olympus',s:'bridge'};
 function drawer(){const v=vessels[lc.v],L=libOf(lc.v,lc.s),O=optsOf(lc.v,lc.s),s=secOf(lc.s);
@@ -1842,6 +1850,7 @@ async function boot(){loadLocal();migrate();await DB.open();
     try{const u=await claude.use('user');dbx=await claude.use('db');uidU=u?await u.id():null;
       if(dbx&&uidU){const snap=await dbx.doc('data/users/'+uidU+'/library').get();if(snap.exists){const d=snap.data();const local=JSON.parse(localStorage.getItem('prg.vessels')||'null');
         if(d&&d.vessels&&(!local||(d.saved||0)>=(local.saved||0))){vessels=clone(d.vessels);order=d.order||Object.keys(vessels);if(d.shared)shared=clone(d.shared);seeded=d.seeded||[];migrate();R?renderEdit():renderHome()}}}}catch(e){}}}
+if(!('BarcodeDetector' in window)&&navigator.onLine&&here())setTimeout(()=>loadJsQR().catch(()=>{}),3000);
 window.addEventListener('hashchange',async()=>{if(QRRE.test(location.hash)){const{last,msg}=await handleText(decodeURIComponent(location.hash));try{history.replaceState(null,'',location.pathname)}catch(e){}toast(msg,4500);if(last)openReport(last)}});
 boot();
 }
